@@ -1,1 +1,1 @@
-export const DB_NAME = "connect with MERN";
+export const DB_NAME = "hello-mern";
