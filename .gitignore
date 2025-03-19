@@ -120,4 +120,6 @@ dist
 # .idx
 .idx
 
+# aws
+aws.xml
 # End of https://mrkandreev.name/snippets/gitignore-generator/#Node
