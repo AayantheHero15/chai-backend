@@ -1,7 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.models.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { uploadOnCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from 'jsonwebtoken'
 
@@ -269,6 +269,19 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     { new: true }
   ).select("-password")
 
+  // Delete old avatar from cloudinary if it exists
+  if (req.user?.avatar) {
+    const oldAvatarUrl = req.user.avatar;
+    const oldAvatarPublicId = oldAvatarUrl.split('/').pop().split('.')[0];
+    
+    try {
+      await deleteFromCloudinary(oldAvatarPublicId);
+    } catch (error) {
+       throw new ApiError(500, "Error while deleting old image")
+      // Continue execution even if deletion fails
+    }
+  }
+
   return res
     .status(200)
     .json(
@@ -305,7 +318,7 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
       new ApiResponse(200, user, "Cover Image updated successfully")
     )
 })
-
+ 
 export {
   registerUser,
   loginUser,
