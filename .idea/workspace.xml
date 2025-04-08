@@ -5,8 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="edbf1783-c3ef-4a27-b9c5-47cfb7db2f7c" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/src/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/app.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/middlewares/auth.middleware.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/middlewares/auth.middleware.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/controllers/user.controller.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/controllers/user.controller.js" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -74,6 +73,7 @@
       <workItem from="1742892195883" duration="139000" />
       <workItem from="1742892369169" duration="1077000" />
       <workItem from="1743263418744" duration="39000" />
+      <workItem from="1744111308661" duration="465000" />
     </task>
     <task id="LOCAL-00001" summary="add register controller and bug fixes">
       <option name="closed" value="true" />
