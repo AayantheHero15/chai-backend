@@ -1,35 +1,51 @@
-import mongoose, {isValidObjectId} from "mongoose"
-import {Video} from "../models/video.model.js"
-import {ApiError} from "../utils/ApiError.js"
-import {ApiResponse} from "../utils/ApiResponse.js"
-import {asyncHandler} from "../utils/asyncHandler.js"
-import {uploadOnCloudinary} from "../utils/cloudinary.js"
+import mongoose, { isValidObjectId } from "mongoose"
+import { Video } from "../models/video.model.js"
+import { ApiError } from "../utils/ApiError.js"
+import { ApiResponse } from "../utils/ApiResponse.js"
+import { asyncHandler } from "../utils/asyncHandler.js"
+import { uploadOnCloudinary } from "../utils/cloudinary.js"
 
 
 const getAllVideos = asyncHandler(async (req, res) => {
-    const { page = 1, limit = 10, query, sortBy = "createdAt", sortType = "desc", userId } = req.query
+    const { page = 1, limit = 10, query, sortBy = "createdAt", sortType = "desc", userId } = req.query;
 
-    const pipeline = []
+    // Convert page and limit to numbers, ensure they are positive integers
+    const pageNumber = parseInt(page, 10);
+    const limitNumber = parseInt(limit, 10);
+
+    if (isNaN(pageNumber) || pageNumber < 1 || isNaN(limitNumber) || limitNumber < 1) {
+        throw new ApiError(400, "Invalid page or limit parameters");
+    }
+
+    const pipeline = [];
+    const matchStage = {};
 
     // Match by userId if provided
-    if (userId && isValidObjectId(userId)) {
-        pipeline.push({
-            $match: {
-                owner: new mongoose.Types.ObjectId(userId)
-            }
-        })
+    if (userId) {
+        if (!isValidObjectId(userId)) {
+            throw new ApiError(400, "Invalid userId");
+        }
+        matchStage.owner = new mongoose.Types.ObjectId(userId);
+        // Allow owner to see their unpublished videos
+        if (!(req.user?._id && req.user._id.toString() === userId)) {
+            matchStage.isPublished = true;
+        }
+    } else {
+        // Default: only show published videos if no specific user is requested
+        matchStage.isPublished = true;
     }
 
     // Match by search query if provided
     if (query) {
-        pipeline.push({
-            $match: {
-                $or: [
-                    { title: { $regex: query, $options: "i" } },
-                    { description: { $regex: query, $options: "i" } }
-                ]
-            }
-        })
+        matchStage.$or = [
+            { title: { $regex: query, $options: "i" } },
+            { description: { $regex: query, $options: "i" } }
+        ];
+    }
+
+    // Add the combined match stage
+    if (Object.keys(matchStage).length > 0) {
+        pipeline.push({ $match: matchStage });
     }
 
     // Add lookup stages
@@ -58,22 +74,27 @@ const getAllVideos = asyncHandler(async (req, res) => {
         }
     )
 
+    // Define valid sort fields to prevent arbitrary field sorting
+    const validSortFields = ["createdAt", "views", "duration"];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+    const sortOrder = sortType === "desc" ? -1 : 1;
+
     // Add sorting
     pipeline.push({
         $sort: {
-            [sortBy]: sortType === "desc" ? -1 : 1
+            [sortField]: sortOrder
         }
-    })
+    });
 
-    // Add pagination
+    // Add pagination using calculated numbers
     pipeline.push(
         {
-            $skip: (page - 1) * limit
+            $skip: (pageNumber - 1) * limitNumber
         },
         {
-            $limit: parseInt(limit)
+            $limit: limitNumber
         }
-    )
+    );
 
     const videos = await Video.aggregate(pipeline)
 
@@ -127,10 +148,31 @@ const getVideoById = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Invalid video ID")
     }
 
-    const video = await Video.aggregate([
+    // Find the video by ID
+    const videoPipeline = [
         {
             $match: {
-                _id: new mongoose.Types.ObjectId(`videoId`)
+                _id: new mongoose.Types.ObjectId(videoId)
+            }
+        },
+        // Add stages to check publish status and ownership
+        {
+            $addFields: {
+                isOwner: {
+                    $cond: {
+                        if: { $eq: ["$owner", new mongoose.Types.ObjectId(req.user?._id)] },
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },
+        {
+            $match: {
+                $or: [
+                    { isPublished: true },
+                    { isOwner: true } // Owner can see unpublished videos
+                ]
             }
         },
         {
@@ -152,13 +194,22 @@ const getVideoById = asyncHandler(async (req, res) => {
         {
             $addFields: {
                 ownerDetails: { $first: "$ownerDetails" },
-                likesCount: { $size: "$likes" }
+                likesCount: { $size: "$likes" },
+                isOwner: {
+                    $cond: {
+                        if: { $eq: ["$owner", new mongoose.Types.ObjectId(req.user?._id)] },
+                        then: true,
+                        else: false
+                    }
+                }
             }
         }
-    ])
+    ]
+
+    const video = await Video.aggregate(videoPipeline);
 
     if (!video?.length) {
-        throw new ApiError(404, "Video not found")
+        throw new ApiError(404, "Video not found or access denied")
     }
 
     return res.status(200).json(
@@ -187,16 +238,20 @@ const updateVideo = asyncHandler(async (req, res) => {
     if (req.files?.thumbnail) {
         const thumbnailLocalPath = req.files.thumbnail[0].path
         const thumbnail = await uploadOnCloudinary(thumbnailLocalPath)
-        
+
         if (thumbnail?.url) {
             updateFields.thumbnail = thumbnail.url
         }
     }
 
+    if (!req.user?._id) {
+        throw new ApiError(401, "Unauthorized request");
+    }
+
     const video = await Video.findOneAndUpdate(
         {
             _id: videoId,
-            owner: req.user?._id
+            owner: req.user._id // Use req.user._id directly after check
         },
         {
             $set: updateFields
@@ -220,9 +275,13 @@ const deleteVideo = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Invalid video ID")
     }
 
+    if (!req.user?._id) {
+        throw new ApiError(401, "Unauthorized request");
+    }
+
     const video = await Video.findOneAndDelete({
         _id: videoId,
-        owner: req.user?._id
+        owner: req.user._id // Use req.user._id directly after check
     })
 
     if (!video) {
@@ -241,9 +300,13 @@ const togglePublishStatus = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Invalid video ID")
     }
 
+    if (!req.user?._id) {
+        throw new ApiError(401, "Unauthorized request");
+    }
+
     const video = await Video.findOne({
         _id: videoId,
-        owner: req.user?._id
+        owner: req.user._id // Use req.user._id directly after check
     })
 
     if (!video) {
